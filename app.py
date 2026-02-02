@@ -1,15 +1,19 @@
 """
-Component Management & Visualization Tool
-A Streamlit application for managing, filtering, and visualizing component data
-with hierarchical structure (main component → sub-components)
+KONE Component Maintenance Manager - OPTIMIZED FOR DYNAMIC EXCEL UPLOADS
+Version: 1.1 - Production Ready for Streamlit Cloud
+
+Key Features:
+- Automatically detects column headers (no hard-coded names)
+- Works with ANY Excel file with same header structure
+- Upload different files anytime with same headers
+- Dynamic filtering and analysis
+- Perfect for varying maintenance data
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import json
-from pathlib import Path
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -17,454 +21,466 @@ import plotly.graph_objects as go
 # PAGE CONFIGURATION
 # ============================================================================
 st.set_page_config(
-    page_title="Component Management Dashboard",
+    page_title="KONE Maintenance Manager",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS for enhanced visuals
+# Custom CSS
 st.markdown("""
     <style>
-        /* Main theme colors */
-        :root {
-            --primary: #2E7D9E;
-            --secondary: #F24236;
-            --accent: #FDB833;
-            --dark: #1A1A1A;
-            --light: #F5F5F5;
-        }
-        
-        /* Sidebar styling */
-        .sidebar .sidebar-content {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        }
-        
-        /* Remove default padding */
-        .main > div {
-            padding-top: 1rem;
-        }
-        
-        /* Custom card styling */
-        .component-card {
-            background: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            border-left: 4px solid #2E7D9E;
-            transition: all 0.3s ease;
-        }
-        
-        .component-card:hover {
-            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-            transform: translateY(-2px);
-        }
-        
-        /* Table styling */
-        .dataframe {
-            font-size: 0.9rem;
-        }
-        
-        /* Metric boxes */
-        .metric-box {
+        .metric-box { 
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 1.5rem;
             border-radius: 8px;
-            text-align: center;
+        }
+        .component-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 0.5rem 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #2E7D9E;
         }
     </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 # ============================================================================
 if 'data' not in st.session_state:
     st.session_state.data = None
-if 'selected_main_component' not in st.session_state:
-    st.session_state.selected_main_component = None
-if 'selected_sub_components' not in st.session_state:
-    st.session_state.selected_sub_components = []
-if 'edit_mode' not in st.session_state:
-    st.session_state.edit_mode = False
-if 'upload_timestamp' not in st.session_state:
-    st.session_state.upload_timestamp = None
+if 'columns_dict' not in st.session_state:
+    st.session_state.columns_dict = {}
+if 'selected_main' not in st.session_state:
+    st.session_state.selected_main = None
+if 'selected_sub' not in st.session_state:
+    st.session_state.selected_sub = []
 
 # ============================================================================
-# UTILITY FUNCTIONS
+# UTILITY FUNCTIONS - TIME CONVERSION
 # ============================================================================
-
-def load_excel_data(uploaded_file):
-    """Load and parse Excel file with data validation."""
-    try:
-        df = pd.read_excel(uploaded_file)
-        st.session_state.data = df
-        st.session_state.upload_timestamp = datetime.now()
-        return df
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        return None
-
-def get_main_components(df):
-    """Extract unique main components from dataframe."""
-    if df is not None:
-        return sorted(df['Component'].dropna().unique().tolist())
-    return []
-
-def get_sub_components(df, main_component):
-    """Extract sub-components for a specific main component."""
-    if df is not None:
-        filtered = df[df['Component'] == main_component]
-        return sorted(filtered['Component.1'].dropna().unique().tolist())
-    return []
-
-def filter_data(df, main_component, sub_components):
-    """Filter dataframe by main and sub-components."""
-    if df is None:
-        return None
-    
-    filtered = df[df['Component'] == main_component]
-    
-    if sub_components:
-        filtered = filtered[filtered['Component.1'].isin(sub_components)]
-    
-    return filtered
-
-def calculate_summary_stats(df):
-    """Calculate summary statistics from filtered data."""
-    if df is None or df.empty:
-        return {}
-    
-    stats = {
-        'total_sub_components': len(df),
-        'total_preparation_time': df['Preparation/Finalization (h:mm:ss)'].sum() if 'Preparation/Finalization (h:mm:ss)' in df.columns else 0,
-        'total_activity_time': df['Activity (h:mm:ss)'].sum() if 'Activity (h:mm:ss)' in df.columns else 0,
-        'total_time': df['Total time (h:mm:ss)'].sum() if 'Total time (h:mm:ss)' in df.columns else 0,
-        'avg_manpower': df['No of man power'].mean() if 'No of man power' in df.columns else 0,
-        'total_manpower': df['No of man power'].sum() if 'No of man power' in df.columns else 0,
-    }
-    return stats
 
 def time_str_to_seconds(time_str):
-    """Convert HH:MM:SS string to seconds."""
+    """Convert HH:MM:SS to seconds"""
     if pd.isna(time_str):
         return 0
     try:
         parts = str(time_str).split(':')
         if len(parts) == 3:
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            h, m, s = map(int, parts)
+            return h * 3600 + m * 60 + s
     except:
         pass
     return 0
 
 def seconds_to_time_str(seconds):
-    """Convert seconds to HH:MM:SS format."""
+    """Convert seconds to HH:MM:SS"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def export_filtered_data(df, filename="filtered_data.csv"):
-    """Prepare filtered data for export."""
-    return df.to_csv(index=False)
+def time_str_to_hours(time_str):
+    """Convert HH:MM:SS to decimal hours"""
+    return time_str_to_seconds(time_str) / 3600
 
 # ============================================================================
-# SIDEBAR - DATA INPUT & CONTROLS
+# DATA LOADING & DETECTION
+# ============================================================================
+
+def detect_columns(df):
+    """
+    Automatically detect column mapping from Excel headers.
+    Works with ANY Excel that has the same header structure.
+    """
+    columns_found = {
+        'main': None,
+        'sub': None,
+        'component': None,
+        'prep_time': None,
+        'activity_time': None,
+        'total_time': None,
+        'manpower': None
+    }
+    
+    # Get all column names
+    col_names = df.columns.tolist()
+    col_lower = [str(c).lower().strip() for c in col_names]
+    
+    # Detect Main Component column
+    for col in col_lower:
+        if 'module' in col and 'sub' not in col:
+            columns_found['main'] = col_names[col_lower.index(col)]
+            break
+    
+    # Detect Sub Component column
+    for col in col_lower:
+        if 'sub' in col and 'module' in col:
+            columns_found['sub'] = col_names[col_lower.index(col)]
+            break
+    
+    # Detect Component column
+    for col in col_lower:
+        if 'component' in col and 'sub' not in col:
+            columns_found['component'] = col_names[col_lower.index(col)]
+            break
+    
+    # Detect Time columns
+    for col in col_lower:
+        if 'preparation' in col or 'prep' in col:
+            columns_found['prep_time'] = col_names[col_lower.index(col)]
+        if 'activity' in col:
+            columns_found['activity_time'] = col_names[col_lower.index(col)]
+        if 'total' in col and 'time' in col:
+            columns_found['total_time'] = col_names[col_lower.index(col)]
+    
+    # Detect Manpower column
+    for col in col_lower:
+        if 'man' in col or 'power' in col or 'personnel' in col:
+            columns_found['manpower'] = col_names[col_lower.index(col)]
+            break
+    
+    return columns_found
+
+def load_excel(uploaded_file):
+    """Load Excel and auto-detect columns"""
+    try:
+        df = pd.read_excel(uploaded_file)
+        
+        # Forward fill main and sub columns
+        if len(df) > 0:
+            # Find which columns are the main/sub
+            cols_dict = detect_columns(df)
+            
+            if cols_dict['main']:
+                df[cols_dict['main']] = df[cols_dict['main']].fillna(method='ffill')
+            if cols_dict['sub']:
+                df[cols_dict['sub']] = df[cols_dict['sub']].fillna(method='ffill')
+        
+        st.session_state.data = df
+        st.session_state.columns_dict = detect_columns(df)
+        st.session_state.upload_timestamp = datetime.now()
+        return df, detect_columns(df)
+    except Exception as e:
+        st.error(f"Error loading file: {str(e)}")
+        return None, {}
+
+def get_main_values(df, col):
+    """Get unique main values"""
+    if df is None or col is None:
+        return []
+    return sorted(df[col].dropna().unique().tolist())
+
+def get_sub_values(df, main_col, main_val, sub_col):
+    """Get unique sub values for a main value"""
+    if df is None or main_col is None or sub_col is None:
+        return []
+    filtered = df[df[main_col] == main_val]
+    return sorted(filtered[sub_col].dropna().unique().tolist())
+
+def filter_data(df, main_col, main_val, sub_col, sub_vals):
+    """Filter data dynamically"""
+    if df is None or main_col is None:
+        return None
+    
+    filtered = df[df[main_col] == main_val]
+    
+    if sub_col and sub_vals:
+        filtered = filtered[filtered[sub_col].isin(sub_vals)]
+    
+    return filtered
+
+def calculate_stats(df, cols_dict):
+    """Calculate statistics from any Excel structure"""
+    if df is None or df.empty:
+        return {}
+    
+    stats = {
+        'records': len(df),
+        'total_time': 0,
+        'total_manpower': 0,
+    }
+    
+    # Calculate time if column exists
+    if cols_dict.get('total_time') and cols_dict['total_time'] in df.columns:
+        try:
+            total_secs = sum(time_str_to_seconds(t) for t in df[cols_dict['total_time']])
+            stats['total_time'] = total_secs
+        except:
+            pass
+    
+    # Calculate manpower if column exists
+    if cols_dict.get('manpower') and cols_dict['manpower'] in df.columns:
+        try:
+            manpower = df[cols_dict['manpower']].dropna()
+            stats['total_manpower'] = int(manpower.sum())
+            stats['avg_manpower'] = manpower.mean()
+        except:
+            pass
+    
+    return stats
+
+# ============================================================================
+# SIDEBAR
 # ============================================================================
 
 with st.sidebar:
-    st.title("📋 Control Panel")
+    st.title("🔧 Control Panel")
     st.markdown("---")
     
-    # File upload section
-    st.subheader("📁 Data Management")
+    # File upload - DYNAMIC EXCEL SUPPORT
+    st.subheader("📁 Upload Excel Data")
     uploaded_file = st.file_uploader(
-        "Upload Excel File",
+        "Upload your Excel file",
         type=['xlsx', 'xls'],
-        help="Upload your component data in Excel format"
+        help="Upload any Excel file with same column structure"
     )
     
     if uploaded_file is not None:
-        with st.spinner("Loading data..."):
-            df = load_excel_data(uploaded_file)
+        with st.spinner("Loading and analyzing..."):
+            df, cols_dict = load_excel(uploaded_file)
             if df is not None:
-                st.success(f"✅ File loaded successfully!")
-                st.caption(f"Rows: {len(df)} | Last updated: {st.session_state.upload_timestamp.strftime('%H:%M:%S')}")
+                st.success(f"✅ Loaded {len(df)} records!")
+                
+                # Show detected columns
+                with st.expander("📋 Detected Columns"):
+                    for key, val in cols_dict.items():
+                        if val:
+                            st.caption(f"**{key.upper()}**: {val}")
     
     st.markdown("---")
     
-    # View mode toggle
-    st.subheader("👁️ View Options")
+    # View selection
+    st.subheader("👁️ View Mode")
     view_mode = st.radio(
         "Select View",
-        ["Component Selection", "Data Analysis", "Summary Report"],
-        help="Switch between different views"
+        ["🔍 Table View", "📊 Analytics", "📈 Summary"],
     )
     
     st.markdown("---")
     
-    # Export options
-    st.subheader("💾 Export Options")
-    if st.session_state.data is not None and st.session_state.selected_sub_components:
-        filtered_data = filter_data(
+    # Export
+    st.subheader("💾 Export")
+    if st.session_state.data is not None and st.session_state.selected_sub:
+        filtered = filter_data(
             st.session_state.data,
-            st.session_state.selected_main_component,
-            st.session_state.selected_sub_components
+            st.session_state.columns_dict['main'],
+            st.session_state.selected_main,
+            st.session_state.columns_dict['sub'],
+            st.session_state.selected_sub
         )
         
-        csv_data = export_filtered_data(filtered_data)
+        csv = filtered.to_csv(index=False)
         st.download_button(
             label="📥 Download CSV",
-            data=csv_data,
-            file_name=f"component_{st.session_state.selected_main_component}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            data=csv,
+            file_name=f"maintenance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
         )
 
 # ============================================================================
-# MAIN CONTENT AREA
+# MAIN CONTENT
 # ============================================================================
 
-st.title("🔧 Component Management & Visualization")
-st.markdown("Streamline maintenance timing and resource allocation")
+st.title("🔧 KONE Maintenance Component Manager")
+st.markdown("Upload Excel → Select Data → Analyze → Export")
 
 if st.session_state.data is None:
-    st.info("👈 Please upload an Excel file to get started")
+    st.info("👈 Upload your Excel file in the sidebar to get started")
     st.stop()
 
+cols_dict = st.session_state.columns_dict
+
 # ============================================================================
-# VIEW 1: COMPONENT SELECTION
+# VIEW 1: TABLE VIEW (DEFAULT)
 # ============================================================================
 
-if view_mode == "Component Selection":
-    st.header("Step 1: Select Main Component")
+if view_mode == "🔍 Table View":
     
-    main_components = get_main_components(st.session_state.data)
+    st.header("Data Selection & Preview")
     
-    # Create grid layout for component cards
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Available Components")
-        
-        # Component selection cards
-        cols = st.columns(2)
-        for idx, component in enumerate(main_components):
-            with cols[idx % 2]:
-                if st.button(
-                    f"🔹 {component}",
-                    key=f"comp_{component}",
-                    use_container_width=True,
-                    help=f"Click to select {component}"
-                ):
-                    st.session_state.selected_main_component = component
-                    st.session_state.selected_sub_components = []
-                    st.rerun()
-    
-    with col2:
-        st.subheader("Selected")
-        if st.session_state.selected_main_component:
-            st.success(st.session_state.selected_main_component)
-        else:
-            st.info("None selected")
-    
-    st.markdown("---")
-    
-    # Sub-component selection
-    if st.session_state.selected_main_component:
-        st.header("Step 2: Select Sub-Components")
-        
-        sub_components = get_sub_components(
-            st.session_state.data,
-            st.session_state.selected_main_component
-        )
+    if cols_dict.get('main'):
+        # Select main category
+        main_values = get_main_values(st.session_state.data, cols_dict['main'])
         
         col1, col2 = st.columns([2, 1])
-        
         with col1:
-            st.subheader(f"Sub-components of {st.session_state.selected_main_component}")
-            
-            # Multi-select for sub-components
-            selected = st.multiselect(
-                "Choose sub-components (default: first one selected)",
-                options=sub_components,
-                default=sub_components[0:1] if sub_components else [],
-                key="sub_comp_select"
-            )
-            
-            st.session_state.selected_sub_components = selected
+            st.subheader("📦 Select Main Category")
+            for val in main_values:
+                if st.button(f"📦 {val}", key=f"main_{val}", use_container_width=True):
+                    st.session_state.selected_main = val
+                    st.session_state.selected_sub = []
+                    st.rerun()
         
         with col2:
-            st.subheader("Selected Count")
-            st.metric("Sub-components", len(st.session_state.selected_sub_components))
+            st.subheader("Selected")
+            if st.session_state.selected_main:
+                st.success(st.session_state.selected_main)
         
         st.markdown("---")
         
-        # Display selected data in table
-        if st.session_state.selected_sub_components:
-            st.header("Step 3: Preview Selected Data")
-            
-            filtered_df = filter_data(
+        # Select sub categories
+        if st.session_state.selected_main:
+            sub_values = get_sub_values(
                 st.session_state.data,
-                st.session_state.selected_main_component,
-                st.session_state.selected_sub_components
+                cols_dict['main'],
+                st.session_state.selected_main,
+                cols_dict['sub']
             )
             
-            st.subheader(f"Data for {st.session_state.selected_main_component}")
-            st.dataframe(filtered_df, use_container_width=True, height=400)
+            st.subheader("🔹 Select Sub-Categories")
+            selected_sub = st.multiselect(
+                "Choose items",
+                options=sub_values,
+                default=sub_values[0:1] if sub_values else [],
+                key="sub_select"
+            )
+            st.session_state.selected_sub = selected_sub
             
-            # Summary statistics
-            stats = calculate_summary_stats(filtered_df)
+            st.markdown("---")
             
-            st.subheader("Summary Statistics")
-            metric_cols = st.columns(4)
-            
-            with metric_cols[0]:
-                st.metric("Total Sub-Components", stats['total_sub_components'])
-            
-            with metric_cols[1]:
-                st.metric("Total Manpower", int(stats['total_manpower']))
-            
-            with metric_cols[2]:
-                st.metric("Avg Manpower", f"{stats['avg_manpower']:.1f}")
-            
-            with metric_cols[3]:
-                st.metric("Sub-components Selected", len(st.session_state.selected_sub_components))
-
-# ============================================================================
-# VIEW 2: DATA ANALYSIS
-# ============================================================================
-
-elif view_mode == "Data Analysis":
-    st.header("Data Analysis & Insights")
-    
-    if st.session_state.selected_main_component and st.session_state.selected_sub_components:
-        filtered_df = filter_data(
-            st.session_state.data,
-            st.session_state.selected_main_component,
-            st.session_state.selected_sub_components
-        )
-        
-        # Create visualization tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["Table View", "Time Analysis", "Manpower Analysis", "Component Breakdown"])
-        
-        with tab1:
-            st.subheader("Detailed Data View")
-            st.dataframe(filtered_df, use_container_width=True)
-        
-        with tab2:
-            st.subheader("Time Distribution Analysis")
-            
-            # Convert time columns to numeric for visualization
-            try:
-                prep_times = filtered_df['Preparation/Finalization (h:mm:ss)'].apply(time_str_to_seconds) / 3600
-                activity_times = filtered_df['Activity (h:mm:ss)'].apply(time_str_to_seconds) / 3600
-                
-                fig = go.Figure(data=[
-                    go.Bar(name='Preparation', x=filtered_df['Component.1'], y=prep_times),
-                    go.Bar(name='Activity', x=filtered_df['Component.1'], y=activity_times)
-                ])
-                
-                fig.update_layout(
-                    barmode='stack',
-                    title=f"Time Distribution for {st.session_state.selected_main_component}",
-                    xaxis_title="Sub-Component",
-                    yaxis_title="Time (Hours)",
-                    height=500
+            # Display filtered data
+            if st.session_state.selected_sub:
+                filtered_df = filter_data(
+                    st.session_state.data,
+                    cols_dict['main'],
+                    st.session_state.selected_main,
+                    cols_dict['sub'],
+                    st.session_state.selected_sub
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.error(f"Could not generate time analysis: {str(e)}")
-        
-        with tab3:
-            st.subheader("Manpower Requirements")
-            
-            try:
-                fig = px.bar(
-                    filtered_df,
-                    x='Component.1',
-                    y='No of man power',
-                    title=f"Manpower Needed for {st.session_state.selected_main_component}",
-                    labels={'Component.1': 'Sub-Component', 'No of man power': 'Number of People'}
-                )
-                
-                fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                st.subheader(f"📊 Data Preview ({len(filtered_df)} records)")
+                st.dataframe(filtered_df, use_container_width=True, height=400)
                 
                 # Statistics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Manpower Required", int(filtered_df['No of man power'].sum()))
-                with col2:
-                    st.metric("Average Manpower", f"{filtered_df['No of man power'].mean():.1f}")
-                with col3:
-                    st.metric("Max Manpower", int(filtered_df['No of man power'].max()))
-            except Exception as e:
-                st.error(f"Could not generate manpower analysis: {str(e)}")
-        
-        with tab4:
-            st.subheader("Component Breakdown")
-            
-            try:
-                breakdown = filtered_df.groupby('Component.1').agg({
-                    'Preparation/Finalization (h:mm:ss)': 'first',
-                    'Activity (h:mm:ss)': 'first',
-                    'Total time (h:mm:ss)': 'first',
-                    'No of man power': 'first'
-                }).reset_index()
+                stats = calculate_stats(filtered_df, cols_dict)
+                col1, col2, col3, col4 = st.columns(4)
                 
-                st.dataframe(breakdown, use_container_width=True)
-            except Exception as e:
-                st.error(f"Could not generate breakdown: {str(e)}")
-    else:
-        st.warning("Please select a component and sub-components first")
+                with col1:
+                    st.metric("Records", stats['records'])
+                with col2:
+                    st.metric("Total Time", seconds_to_time_str(int(stats['total_time'])) if stats['total_time'] > 0 else "N/A")
+                with col3:
+                    st.metric("Total Manpower", int(stats['total_manpower']))
+                with col4:
+                    st.metric("Avg Manpower", f"{stats.get('avg_manpower', 0):.1f}")
 
 # ============================================================================
-# VIEW 3: SUMMARY REPORT
+# VIEW 2: ANALYTICS
 # ============================================================================
 
-elif view_mode == "Summary Report":
-    st.header("Executive Summary Report")
+elif view_mode == "📊 Analytics":
     
-    all_data = st.session_state.data
+    if not st.session_state.selected_main or not st.session_state.selected_sub:
+        st.warning("Please select a category and items first")
+        st.stop()
     
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Components", len(get_main_components(all_data)))
-    
-    with col2:
-        st.metric("Total Sub-Components", len(all_data))
-    
-    with col3:
-        st.metric("Total Manpower Required", int(all_data['No of man power'].sum()) if 'No of man power' in all_data.columns else 0)
-    
-    with col4:
-        st.metric("Data Points", len(all_data))
-    
-    st.markdown("---")
-    
-    # Component overview
-    st.subheader("Component Overview")
-    
-    component_summary = all_data.groupby('Component').agg({
-        'Component.1': 'count',
-        'No of man power': 'sum'
-    }).rename(columns={'Component.1': 'Sub-Component Count'})
-    
-    st.dataframe(component_summary, use_container_width=True)
-    
-    # Visualization
-    fig = px.bar(
-        component_summary.reset_index(),
-        x='Component',
-        y='Sub-Component Count',
-        title="Number of Sub-Components per Main Component",
-        labels={'Sub-Component Count': 'Count'}
+    filtered_df = filter_data(
+        st.session_state.data,
+        cols_dict['main'],
+        st.session_state.selected_main,
+        cols_dict['sub'],
+        st.session_state.selected_sub
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    tab1, tab2, tab3 = st.tabs(["📋 Table", "⏱️ Time", "👥 Manpower"])
+    
+    with tab1:
+        st.subheader("Complete Data")
+        st.dataframe(filtered_df, use_container_width=True, height=500)
+    
+    with tab2:
+        st.subheader("Time Analysis")
+        if cols_dict.get('prep_time') and cols_dict.get('activity_time'):
+            try:
+                prep = filtered_df[cols_dict['prep_time']].apply(time_str_to_hours)
+                activity = filtered_df[cols_dict['activity_time']].apply(time_str_to_hours)
+                
+                component_col = cols_dict.get('component', 'Item')
+                
+                fig = go.Figure(data=[
+                    go.Bar(name='Preparation', x=filtered_df[component_col], y=prep),
+                    go.Bar(name='Activity', x=filtered_df[component_col], y=activity)
+                ])
+                
+                fig.update_layout(barmode='stack', height=500, hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Could not generate chart: {str(e)}")
+    
+    with tab3:
+        st.subheader("Manpower Requirements")
+        if cols_dict.get('manpower'):
+            try:
+                component_col = cols_dict.get('component', 'Item')
+                fig = px.bar(
+                    filtered_df,
+                    x=component_col,
+                    y=cols_dict['manpower'],
+                    title="Manpower Needed",
+                    color=cols_dict['manpower'],
+                    color_continuous_scale='Viridis'
+                )
+                fig.update_layout(height=500)
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Could not generate chart: {str(e)}")
+
+# ============================================================================
+# VIEW 3: SUMMARY
+# ============================================================================
+
+elif view_mode == "📈 Summary":
+    
+    st.header("Summary Report")
+    
+    if cols_dict.get('main'):
+        main_values = get_main_values(st.session_state.data, cols_dict['main'])
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Categories", len(main_values))
+        with col2:
+            st.metric("Total Records", len(st.session_state.data))
+        with col3:
+            if cols_dict.get('manpower'):
+                st.metric("Total Manpower", int(st.session_state.data[cols_dict['manpower']].sum()))
+        with col4:
+            if cols_dict.get('total_time'):
+                total_secs = sum(time_str_to_seconds(t) for t in st.session_state.data[cols_dict['total_time']])
+                st.metric("Total Time", seconds_to_time_str(int(total_secs)))
+        
+        st.markdown("---")
+        st.subheader("Category Breakdown")
+        
+        # Summary by main category
+        summary_data = []
+        for main_val in main_values:
+            category_df = st.session_state.data[st.session_state.data[cols_dict['main']] == main_val]
+            summary_data.append({
+                'Category': main_val,
+                'Records': len(category_df),
+                'Manpower': int(category_df[cols_dict['manpower']].sum()) if cols_dict.get('manpower') else 0
+            })
+        
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True)
+        
+        # Chart
+        if len(summary_df) > 0:
+            fig = px.bar(
+                summary_df,
+                x='Category',
+                y='Records',
+                title='Records per Category',
+                color='Manpower',
+                color_continuous_scale='Blues'
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
 # FOOTER
@@ -472,13 +488,10 @@ elif view_mode == "Summary Report":
 
 st.markdown("---")
 col1, col2, col3 = st.columns(3)
-
 with col1:
-    st.caption("🔧 Component Management Tool v1.0")
-
+    st.caption("🔧 KONE Maintenance Manager v1.1")
 with col2:
-    if st.session_state.upload_timestamp:
-        st.caption(f"Last updated: {st.session_state.upload_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-
+    if st.session_state.data is not None:
+        st.caption(f"Loaded: {len(st.session_state.data)} records")
 with col3:
-    st.caption("💡 Tip: Use sidebar to manage data and export results")
+    st.caption("💡 Upload any Excel file with same headers")
