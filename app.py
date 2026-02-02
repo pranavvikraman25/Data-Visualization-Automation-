@@ -1,13 +1,6 @@
 """
-KONE Component Maintenance Manager - OPTIMIZED FOR DYNAMIC EXCEL UPLOADS
-Version: 1.1 - Production Ready for Streamlit Cloud
-
-Key Features:
-- Automatically detects column headers (no hard-coded names)
-- Works with ANY Excel file with same header structure
-- Upload different files anytime with same headers
-- Dynamic filtering and analysis
-- Perfect for varying maintenance data
+KONE Component Maintenance Manager - FINAL FIXED VERSION
+Works with ANY Excel structure - Dynamic column detection with fallback
 """
 
 import streamlit as st
@@ -27,7 +20,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
 st.markdown("""
     <style>
         .metric-box { 
@@ -35,14 +27,6 @@ st.markdown("""
             color: white;
             padding: 1.5rem;
             border-radius: 8px;
-        }
-        .component-card {
-            background: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 0.5rem 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            border-left: 4px solid #2E7D9E;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -60,7 +44,7 @@ if 'selected_sub' not in st.session_state:
     st.session_state.selected_sub = []
 
 # ============================================================================
-# UTILITY FUNCTIONS - TIME CONVERSION
+# UTILITY FUNCTIONS
 # ============================================================================
 
 def time_str_to_seconds(time_str):
@@ -88,13 +72,28 @@ def time_str_to_hours(time_str):
     return time_str_to_seconds(time_str) / 3600
 
 # ============================================================================
-# DATA LOADING & DETECTION
+# COLUMN DETECTION - ROBUST VERSION
 # ============================================================================
+
+def find_column_by_keywords(df, keywords):
+    """
+    Find a column that contains any of the keywords.
+    Keywords: list of strings to search for
+    Returns: column name or None
+    """
+    col_names = df.columns.tolist()
+    col_lower = [str(c).lower().strip() for c in col_names]
+    
+    for keyword in keywords:
+        for i, col_lower_name in enumerate(col_lower):
+            if keyword.lower() in col_lower_name:
+                return col_names[i]
+    return None
 
 def detect_columns(df):
     """
-    Automatically detect column mapping from Excel headers.
-    Works with ANY Excel that has the same header structure.
+    Automatically detect column names using keywords.
+    Very robust - handles ANY variation of headers.
     """
     columns_found = {
         'main': None,
@@ -106,95 +105,127 @@ def detect_columns(df):
         'manpower': None
     }
     
-    # Get all column names
-    col_names = df.columns.tolist()
-    col_lower = [str(c).lower().strip() for c in col_names]
+    # Find main component column
+    columns_found['main'] = find_column_by_keywords(
+        df, 
+        ['module', 'main', 'category']
+    )
     
-    # Detect Main Component column
-    for col in col_lower:
-        if 'module' in col and 'sub' not in col:
-            columns_found['main'] = col_names[col_lower.index(col)]
-            break
+    # Find sub component column
+    columns_found['sub'] = find_column_by_keywords(
+        df,
+        ['sub', 'sub_module', 'submodule', 'group']
+    )
     
-    # Detect Sub Component column
-    for col in col_lower:
-        if 'sub' in col and 'module' in col:
-            columns_found['sub'] = col_names[col_lower.index(col)]
-            break
+    # Find component column (try multiple keywords)
+    columns_found['component'] = find_column_by_keywords(
+        df,
+        ['component', 'item', 'name', 'equipment', 'device']
+    )
     
-    # Detect Component column
-    for col in col_lower:
-        if 'component' in col and 'sub' not in col:
-            columns_found['component'] = col_names[col_lower.index(col)]
-            break
+    # Find prep time column
+    columns_found['prep_time'] = find_column_by_keywords(
+        df,
+        ['prep', 'preparation', 'setup', 'finalization']
+    )
     
-    # Detect Time columns
-    for col in col_lower:
-        if 'preparation' in col or 'prep' in col:
-            columns_found['prep_time'] = col_names[col_lower.index(col)]
-        if 'activity' in col:
-            columns_found['activity_time'] = col_names[col_lower.index(col)]
-        if 'total' in col and 'time' in col:
-            columns_found['total_time'] = col_names[col_lower.index(col)]
+    # Find activity time column
+    columns_found['activity_time'] = find_column_by_keywords(
+        df,
+        ['activity', 'work', 'execution', 'action']
+    )
     
-    # Detect Manpower column
-    for col in col_lower:
-        if 'man' in col or 'power' in col or 'personnel' in col:
-            columns_found['manpower'] = col_names[col_lower.index(col)]
-            break
+    # Find total time column
+    columns_found['total_time'] = find_column_by_keywords(
+        df,
+        ['total', 'total_time', 'duration']
+    )
+    
+    # Find manpower column
+    columns_found['manpower'] = find_column_by_keywords(
+        df,
+        ['man', 'power', 'personnel', 'people', 'workers', 'staff']
+    )
     
     return columns_found
 
 def load_excel(uploaded_file):
-    """Load Excel and auto-detect columns"""
+    """Load Excel file and detect columns"""
     try:
         df = pd.read_excel(uploaded_file)
         
-        # Forward fill main and sub columns
-        if len(df) > 0:
-            # Find which columns are the main/sub
-            cols_dict = detect_columns(df)
-            
-            if cols_dict['main']:
-                df[cols_dict['main']] = df[cols_dict['main']].fillna(method='ffill')
-            if cols_dict['sub']:
-                df[cols_dict['sub']] = df[cols_dict['sub']].fillna(method='ffill')
+        # Forward fill main and sub columns to handle NaN values
+        cols_dict = detect_columns(df)
+        
+        if cols_dict['main'] and cols_dict['main'] in df.columns:
+            df[cols_dict['main']] = df[cols_dict['main']].fillna(method='ffill')
+        
+        if cols_dict['sub'] and cols_dict['sub'] in df.columns:
+            df[cols_dict['sub']] = df[cols_dict['sub']].fillna(method='ffill')
         
         st.session_state.data = df
-        st.session_state.columns_dict = detect_columns(df)
+        st.session_state.columns_dict = cols_dict
         st.session_state.upload_timestamp = datetime.now()
-        return df, detect_columns(df)
+        
+        return df, cols_dict
     except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
+        st.error(f"❌ Error loading file: {str(e)}")
         return None, {}
 
-def get_main_values(df, col):
-    """Get unique main values"""
-    if df is None or col is None:
+def get_main_values(df, col_dict):
+    """Get unique main values - with error handling"""
+    if df is None or col_dict.get('main') is None:
         return []
-    return sorted(df[col].dropna().unique().tolist())
+    
+    try:
+        col_name = col_dict['main']
+        if col_name in df.columns:
+            return sorted([str(x) for x in df[col_name].dropna().unique()])
+    except Exception as e:
+        st.error(f"Error getting main values: {str(e)}")
+    
+    return []
 
-def get_sub_values(df, main_col, main_val, sub_col):
-    """Get unique sub values for a main value"""
-    if df is None or main_col is None or sub_col is None:
+def get_sub_values(df, col_dict, main_value):
+    """Get unique sub values - with error handling"""
+    if df is None or col_dict.get('main') is None or col_dict.get('sub') is None:
         return []
-    filtered = df[df[main_col] == main_val]
-    return sorted(filtered[sub_col].dropna().unique().tolist())
+    
+    try:
+        main_col = col_dict['main']
+        sub_col = col_dict['sub']
+        
+        if main_col in df.columns and sub_col in df.columns:
+            filtered = df[df[main_col].astype(str) == str(main_value)]
+            return sorted([str(x) for x in filtered[sub_col].dropna().unique()])
+    except Exception as e:
+        st.error(f"Error getting sub values: {str(e)}")
+    
+    return []
 
-def filter_data(df, main_col, main_val, sub_col, sub_vals):
-    """Filter data dynamically"""
-    if df is None or main_col is None:
+def filter_data(df, col_dict, main_value, sub_values):
+    """Filter data by selected values"""
+    if df is None or col_dict.get('main') is None:
         return None
     
-    filtered = df[df[main_col] == main_val]
-    
-    if sub_col and sub_vals:
-        filtered = filtered[filtered[sub_col].isin(sub_vals)]
-    
-    return filtered
+    try:
+        main_col = col_dict['main']
+        
+        # Filter by main value
+        filtered = df[df[main_col].astype(str) == str(main_value)].copy()
+        
+        # Filter by sub values if they exist
+        if sub_values and col_dict.get('sub') and col_dict['sub'] in df.columns:
+            sub_col = col_dict['sub']
+            filtered = filtered[filtered[sub_col].astype(str).isin([str(v) for v in sub_values])]
+        
+        return filtered
+    except Exception as e:
+        st.error(f"Error filtering data: {str(e)}")
+        return None
 
-def calculate_stats(df, cols_dict):
-    """Calculate statistics from any Excel structure"""
+def calculate_stats(df, col_dict):
+    """Calculate statistics safely"""
     if df is None or df.empty:
         return {}
     
@@ -202,24 +233,24 @@ def calculate_stats(df, cols_dict):
         'records': len(df),
         'total_time': 0,
         'total_manpower': 0,
+        'avg_manpower': 0,
     }
     
-    # Calculate time if column exists
-    if cols_dict.get('total_time') and cols_dict['total_time'] in df.columns:
-        try:
-            total_secs = sum(time_str_to_seconds(t) for t in df[cols_dict['total_time']])
+    try:
+        if col_dict.get('total_time') and col_dict['total_time'] in df.columns:
+            total_secs = sum(time_str_to_seconds(t) for t in df[col_dict['total_time']])
             stats['total_time'] = total_secs
-        except:
-            pass
+    except:
+        pass
     
-    # Calculate manpower if column exists
-    if cols_dict.get('manpower') and cols_dict['manpower'] in df.columns:
-        try:
-            manpower = df[cols_dict['manpower']].dropna()
-            stats['total_manpower'] = int(manpower.sum())
-            stats['avg_manpower'] = manpower.mean()
-        except:
-            pass
+    try:
+        if col_dict.get('manpower') and col_dict['manpower'] in df.columns:
+            manpower = pd.to_numeric(df[col_dict['manpower']], errors='coerce').dropna()
+            if len(manpower) > 0:
+                stats['total_manpower'] = int(manpower.sum())
+                stats['avg_manpower'] = manpower.mean()
+    except:
+        pass
     
     return stats
 
@@ -231,29 +262,31 @@ with st.sidebar:
     st.title("🔧 Control Panel")
     st.markdown("---")
     
-    # File upload - DYNAMIC EXCEL SUPPORT
     st.subheader("📁 Upload Excel Data")
     uploaded_file = st.file_uploader(
-        "Upload your Excel file",
+        "Choose your Excel file",
         type=['xlsx', 'xls'],
-        help="Upload any Excel file with same column structure"
+        help="Upload Excel with columns: Module, Sub Module, Component, Time, Manpower"
     )
     
     if uploaded_file is not None:
-        with st.spinner("Loading and analyzing..."):
+        with st.spinner("📥 Loading file..."):
             df, cols_dict = load_excel(uploaded_file)
+            
             if df is not None:
                 st.success(f"✅ Loaded {len(df)} records!")
                 
-                # Show detected columns
                 with st.expander("📋 Detected Columns"):
                     for key, val in cols_dict.items():
                         if val:
-                            st.caption(f"**{key.upper()}**: {val}")
+                            st.write(f"**{key.upper()}**: {val}")
+                        else:
+                            st.write(f"**{key.upper()}**: ❌ Not found")
+            else:
+                st.error("Failed to load file")
     
     st.markdown("---")
     
-    # View selection
     st.subheader("👁️ View Mode")
     view_mode = st.radio(
         "Select View",
@@ -262,24 +295,26 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Export
     st.subheader("💾 Export")
-    if st.session_state.data is not None and st.session_state.selected_sub:
+    if (st.session_state.data is not None and 
+        st.session_state.selected_sub and 
+        st.session_state.columns_dict):
+        
         filtered = filter_data(
             st.session_state.data,
-            st.session_state.columns_dict['main'],
+            st.session_state.columns_dict,
             st.session_state.selected_main,
-            st.session_state.columns_dict['sub'],
             st.session_state.selected_sub
         )
         
-        csv = filtered.to_csv(index=False)
-        st.download_button(
-            label="📥 Download CSV",
-            data=csv,
-            file_name=f"maintenance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
+        if filtered is not None and len(filtered) > 0:
+            csv = filtered.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"maintenance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
 
 # ============================================================================
 # MAIN CONTENT
@@ -292,81 +327,93 @@ if st.session_state.data is None:
     st.info("👈 Upload your Excel file in the sidebar to get started")
     st.stop()
 
-cols_dict = st.session_state.columns_dict
+col_dict = st.session_state.columns_dict
+
+# Check if columns were detected
+if not col_dict.get('main'):
+    st.error("❌ Could not detect main component column. Please check your Excel headers.")
+    st.stop()
 
 # ============================================================================
-# VIEW 1: TABLE VIEW (DEFAULT)
+# VIEW 1: TABLE VIEW
 # ============================================================================
 
 if view_mode == "🔍 Table View":
-    
     st.header("Data Selection & Preview")
     
-    if cols_dict.get('main'):
-        # Select main category
-        main_values = get_main_values(st.session_state.data, cols_dict['main'])
-        
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.subheader("📦 Select Main Category")
-            for val in main_values:
-                if st.button(f"📦 {val}", key=f"main_{val}", use_container_width=True):
-                    st.session_state.selected_main = val
-                    st.session_state.selected_sub = []
-                    st.rerun()
-        
-        with col2:
-            st.subheader("Selected")
-            if st.session_state.selected_main:
-                st.success(st.session_state.selected_main)
+    # Get main values
+    main_values = get_main_values(st.session_state.data, col_dict)
+    
+    if not main_values:
+        st.error("❌ No data found in main column")
+        st.stop()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("📦 Select Main Category")
+        for val in main_values[:10]:  # Show first 10
+            if st.button(f"📦 {val}", key=f"main_{val}", use_container_width=True):
+                st.session_state.selected_main = val
+                st.session_state.selected_sub = []
+                st.rerun()
+    
+    with col2:
+        st.subheader("Selected")
+        if st.session_state.selected_main:
+            st.success(st.session_state.selected_main)
+        else:
+            st.info("None")
+    
+    st.markdown("---")
+    
+    # Sub-category selection
+    if st.session_state.selected_main:
+        if col_dict.get('sub'):
+            sub_values = get_sub_values(st.session_state.data, col_dict, st.session_state.selected_main)
+            
+            if sub_values:
+                st.subheader("🔹 Select Sub-Categories")
+                selected_sub = st.multiselect(
+                    "Choose items",
+                    options=sub_values,
+                    default=sub_values[0:1] if sub_values else [],
+                    key="sub_select"
+                )
+                st.session_state.selected_sub = selected_sub
+            else:
+                st.warning("No sub-categories found")
         
         st.markdown("---")
         
-        # Select sub categories
-        if st.session_state.selected_main:
-            sub_values = get_sub_values(
+        # Display filtered data
+        if st.session_state.selected_sub:
+            filtered_df = filter_data(
                 st.session_state.data,
-                cols_dict['main'],
+                col_dict,
                 st.session_state.selected_main,
-                cols_dict['sub']
+                st.session_state.selected_sub
             )
             
-            st.subheader("🔹 Select Sub-Categories")
-            selected_sub = st.multiselect(
-                "Choose items",
-                options=sub_values,
-                default=sub_values[0:1] if sub_values else [],
-                key="sub_select"
-            )
-            st.session_state.selected_sub = selected_sub
-            
-            st.markdown("---")
-            
-            # Display filtered data
-            if st.session_state.selected_sub:
-                filtered_df = filter_data(
-                    st.session_state.data,
-                    cols_dict['main'],
-                    st.session_state.selected_main,
-                    cols_dict['sub'],
-                    st.session_state.selected_sub
-                )
-                
+            if filtered_df is not None and len(filtered_df) > 0:
                 st.subheader(f"📊 Data Preview ({len(filtered_df)} records)")
                 st.dataframe(filtered_df, use_container_width=True, height=400)
                 
                 # Statistics
-                stats = calculate_stats(filtered_df, cols_dict)
-                col1, col2, col3, col4 = st.columns(4)
+                stats = calculate_stats(filtered_df, col_dict)
                 
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Records", stats['records'])
                 with col2:
-                    st.metric("Total Time", seconds_to_time_str(int(stats['total_time'])) if stats['total_time'] > 0 else "N/A")
+                    time_str = seconds_to_time_str(int(stats['total_time'])) if stats['total_time'] > 0 else "N/A"
+                    st.metric("Total Time", time_str)
                 with col3:
                     st.metric("Total Manpower", int(stats['total_manpower']))
                 with col4:
-                    st.metric("Avg Manpower", f"{stats.get('avg_manpower', 0):.1f}")
+                    st.metric("Avg Manpower", f"{stats['avg_manpower']:.1f}")
+            else:
+                st.warning("No data found for selected filters")
 
 # ============================================================================
 # VIEW 2: ANALYTICS
@@ -380,11 +427,14 @@ elif view_mode == "📊 Analytics":
     
     filtered_df = filter_data(
         st.session_state.data,
-        cols_dict['main'],
+        col_dict,
         st.session_state.selected_main,
-        cols_dict['sub'],
         st.session_state.selected_sub
     )
+    
+    if filtered_df is None or len(filtered_df) == 0:
+        st.error("No data found")
+        st.stop()
     
     tab1, tab2, tab3 = st.tabs(["📋 Table", "⏱️ Time", "👥 Manpower"])
     
@@ -394,38 +444,46 @@ elif view_mode == "📊 Analytics":
     
     with tab2:
         st.subheader("Time Analysis")
-        if cols_dict.get('prep_time') and cols_dict.get('activity_time'):
+        if col_dict.get('prep_time') and col_dict.get('activity_time'):
             try:
-                prep = filtered_df[cols_dict['prep_time']].apply(time_str_to_hours)
-                activity = filtered_df[cols_dict['activity_time']].apply(time_str_to_hours)
-                
-                component_col = cols_dict.get('component', 'Item')
-                
-                fig = go.Figure(data=[
-                    go.Bar(name='Preparation', x=filtered_df[component_col], y=prep),
-                    go.Bar(name='Activity', x=filtered_df[component_col], y=activity)
-                ])
-                
-                fig.update_layout(barmode='stack', height=500, hovermode='x unified')
-                st.plotly_chart(fig, use_container_width=True)
+                if (col_dict['prep_time'] in filtered_df.columns and 
+                    col_dict['activity_time'] in filtered_df.columns):
+                    
+                    prep = filtered_df[col_dict['prep_time']].apply(time_str_to_hours)
+                    activity = filtered_df[col_dict['activity_time']].apply(time_str_to_hours)
+                    
+                    component_col = col_dict.get('component', 'Item')
+                    x_axis = filtered_df[component_col] if component_col in filtered_df.columns else range(len(filtered_df))
+                    
+                    fig = go.Figure(data=[
+                        go.Bar(name='Preparation', x=x_axis, y=prep),
+                        go.Bar(name='Activity', x=x_axis, y=activity)
+                    ])
+                    
+                    fig.update_layout(barmode='stack', height=500, hovermode='x unified')
+                    st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Could not generate chart: {str(e)}")
+        else:
+            st.info("Time columns not found")
     
     with tab3:
         st.subheader("Manpower Requirements")
-        if cols_dict.get('manpower'):
+        if col_dict.get('manpower'):
             try:
-                component_col = cols_dict.get('component', 'Item')
-                fig = px.bar(
-                    filtered_df,
-                    x=component_col,
-                    y=cols_dict['manpower'],
-                    title="Manpower Needed",
-                    color=cols_dict['manpower'],
-                    color_continuous_scale='Viridis'
-                )
-                fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                if col_dict['manpower'] in filtered_df.columns:
+                    component_col = col_dict.get('component', 'Item')
+                    x_axis = filtered_df[component_col] if component_col in filtered_df.columns else range(len(filtered_df))
+                    
+                    fig = px.bar(
+                        x=x_axis,
+                        y=filtered_df[col_dict['manpower']],
+                        title="Manpower Needed",
+                        color=filtered_df[col_dict['manpower']],
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(height=500)
+                    st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Could not generate chart: {str(e)}")
 
@@ -437,40 +495,53 @@ elif view_mode == "📈 Summary":
     
     st.header("Summary Report")
     
-    if cols_dict.get('main'):
-        main_values = get_main_values(st.session_state.data, cols_dict['main'])
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Categories", len(main_values))
-        with col2:
-            st.metric("Total Records", len(st.session_state.data))
-        with col3:
-            if cols_dict.get('manpower'):
-                st.metric("Total Manpower", int(st.session_state.data[cols_dict['manpower']].sum()))
-        with col4:
-            if cols_dict.get('total_time'):
-                total_secs = sum(time_str_to_seconds(t) for t in st.session_state.data[cols_dict['total_time']])
+    main_values = get_main_values(st.session_state.data, col_dict)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Categories", len(main_values))
+    with col2:
+        st.metric("Total Records", len(st.session_state.data))
+    with col3:
+        if col_dict.get('manpower') and col_dict['manpower'] in st.session_state.data.columns:
+            try:
+                mp = pd.to_numeric(st.session_state.data[col_dict['manpower']], errors='coerce').dropna()
+                st.metric("Total Manpower", int(mp.sum()))
+            except:
+                st.metric("Total Manpower", "N/A")
+    with col4:
+        if col_dict.get('total_time') and col_dict['total_time'] in st.session_state.data.columns:
+            try:
+                total_secs = sum(time_str_to_seconds(t) for t in st.session_state.data[col_dict['total_time']])
                 st.metric("Total Time", seconds_to_time_str(int(total_secs)))
-        
-        st.markdown("---")
-        st.subheader("Category Breakdown")
-        
-        # Summary by main category
-        summary_data = []
-        for main_val in main_values:
-            category_df = st.session_state.data[st.session_state.data[cols_dict['main']] == main_val]
+            except:
+                st.metric("Total Time", "N/A")
+    
+    st.markdown("---")
+    st.subheader("Category Summary")
+    
+    summary_data = []
+    for main_val in main_values[:20]:  # Limit to 20
+        try:
+            category_df = st.session_state.data[
+                st.session_state.data[col_dict['main']].astype(str) == str(main_val)
+            ]
+            
             summary_data.append({
                 'Category': main_val,
                 'Records': len(category_df),
-                'Manpower': int(category_df[cols_dict['manpower']].sum()) if cols_dict.get('manpower') else 0
+                'Manpower': int(pd.to_numeric(category_df[col_dict['manpower']], errors='coerce').sum()) 
+                           if col_dict.get('manpower') and col_dict['manpower'] in st.session_state.data.columns 
+                           else 0
             })
-        
+        except:
+            pass
+    
+    if summary_data:
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
         
-        # Chart
-        if len(summary_df) > 0:
+        try:
             fig = px.bar(
                 summary_df,
                 x='Category',
@@ -481,6 +552,8 @@ elif view_mode == "📈 Summary":
             )
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
+        except:
+            pass
 
 # ============================================================================
 # FOOTER
@@ -489,9 +562,9 @@ elif view_mode == "📈 Summary":
 st.markdown("---")
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.caption("🔧 KONE Maintenance Manager v1.1")
+    st.caption("🔧 KONE Maintenance Manager v1.2")
 with col2:
     if st.session_state.data is not None:
         st.caption(f"Loaded: {len(st.session_state.data)} records")
 with col3:
-    st.caption("💡 Upload any Excel file with same headers")
+    st.caption("✅ Upload any Excel file - Auto-detects structure!")
