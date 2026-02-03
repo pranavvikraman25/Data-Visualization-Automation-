@@ -1,8 +1,3 @@
-"""
-KONE Component Maintenance Manager - FINAL FIXED VERSION
-Works with ANY Excel structure - Dynamic column detection with fallback
-"""
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,9 +5,7 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
+
 st.set_page_config(
     page_title="KONE Maintenance Manager",
     page_icon="🔧",
@@ -31,9 +24,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ============================================================================
-# SESSION STATE
-# ============================================================================
+
 if 'data' not in st.session_state:
     st.session_state.data = None
 if 'columns_dict' not in st.session_state:
@@ -43,9 +34,7 @@ if 'selected_main' not in st.session_state:
 if 'selected_sub' not in st.session_state:
     st.session_state.selected_sub = []
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
+
 
 def time_str_to_seconds(time_str):
     """Convert HH:MM:SS to seconds"""
@@ -71,9 +60,7 @@ def time_str_to_hours(time_str):
     """Convert HH:MM:SS to decimal hours"""
     return time_str_to_seconds(time_str) / 3600
 
-# ============================================================================
-# COLUMN DETECTION - ROBUST VERSION
-# ============================================================================
+
 
 def find_column_by_keywords(df, keywords):
     """
@@ -204,7 +191,7 @@ def get_sub_values(df, col_dict, main_value):
     return []
 
 def filter_data(df, col_dict, main_value, sub_values):
-    """Filter data by selected values"""
+    
     if df is None or col_dict.get('main') is None:
         return None
     
@@ -316,9 +303,7 @@ with st.sidebar:
                 mime="text/csv"
             )
 
-# ============================================================================
-# MAIN CONTENT
-# ============================================================================
+
 
 st.title("🔧 KONE Maintenance Component Manager")
 st.markdown("Upload Excel → Select Data → Analyze → Export")
@@ -334,9 +319,7 @@ if not col_dict.get('main'):
     st.error("❌ Could not detect main component column. Please check your Excel headers.")
     st.stop()
 
-# ============================================================================
-# VIEW 1: TABLE VIEW
-# ============================================================================
+
 
 if view_mode == "🔍 Table View":
     st.header("Data Selection & Preview")
@@ -415,9 +398,7 @@ if view_mode == "🔍 Table View":
             else:
                 st.warning("No data found for selected filters")
 
-# ============================================================================
-# VIEW 2: ANALYTICS
-# ============================================================================
+
 
 elif view_mode == "📊 Analytics":
     
